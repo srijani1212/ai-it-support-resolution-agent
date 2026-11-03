@@ -6,14 +6,14 @@ import urllib.error
 from typing import List, Dict, Any, Optional
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 
 class GroqLLMClient:
     def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
         self.api_key = api_key or os.environ.get("GROQ_API_KEY", "")
-        self.model = model or os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+        self.model = model or os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
 
     def is_configured(self) -> bool:
         return bool(

@@ -5,6 +5,7 @@ load_dotenv()
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .api.routes import router
+from app.llm.groq_client import groq_llm
 
 app = FastAPI(
     title="AI IT Support Resolution Agent API",
@@ -30,7 +31,7 @@ def health_check():
     return {
         "status": "healthy",
         "service": "ai-it-support-agent",
-        "model": "llama-3.3-70b-versatile",
+        "model": groq_llm.model,
         "framework": "LangGraph + FastAPI"
     }
 
