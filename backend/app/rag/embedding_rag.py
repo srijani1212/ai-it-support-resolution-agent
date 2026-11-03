@@ -1,10 +1,108 @@
 
 import os
 import re
+import json
+import math
+import urllib.request
+import urllib.error
 from pathlib import Path
 
 import chromadb
-from sentence_transformers import SentenceTransformer
+from dotenv import load_dotenv
+
+
+# Load environment variables from the project .env file
+load_dotenv()
+
+
+# Cloudflare Workers AI configuration
+CLOUDFLARE_ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID")
+CLOUDFLARE_API_TOKEN = os.getenv("CLOUDFLARE_API_TOKEN")
+
+CLOUDFLARE_MODEL = "@cf/baai/bge-small-en-v1.5"
+
+
+def generate_embeddings(texts: list[str]) -> list[list[float]]:
+    """Generate normalized embeddings using Cloudflare Workers AI."""
+
+    if not CLOUDFLARE_ACCOUNT_ID or not CLOUDFLARE_API_TOKEN:
+        raise ValueError("Cloudflare credentials are missing.")
+
+    url = (
+        f"https://api.cloudflare.com/client/v4/accounts/"
+        f"{CLOUDFLARE_ACCOUNT_ID}/ai/run/{CLOUDFLARE_MODEL}"
+    )
+
+    all_embeddings = []
+
+    # Cloudflare accepts batches of up to 100 texts.
+    for start in range(0, len(texts), 100):
+        batch = texts[start:start + 100]
+
+        payload = json.dumps({
+            "text": batch
+        }).encode("utf-8")
+
+        request = urllib.request.Request(
+            url,
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                result = json.loads(
+                    response.read().decode("utf-8")
+                )
+
+        except urllib.error.HTTPError as error:
+            details = error.read().decode(
+                "utf-8", errors="replace"
+            )
+            raise RuntimeError(
+                f"Cloudflare embedding API error: {details}"
+            ) from error
+
+        except urllib.error.URLError as error:
+            raise RuntimeError(
+                f"Could not connect to Cloudflare: {error}"
+            ) from error
+
+        if not result.get("success"):
+            raise RuntimeError(
+                f"Cloudflare embedding failed: {result.get('errors')}"
+            )
+
+        embeddings = result["result"]["data"]
+
+        if len(embeddings) != len(batch):
+            raise RuntimeError(
+                "Cloudflare returned an unexpected number of embeddings."
+            )
+
+        for embedding in embeddings:
+
+            # Preserve the previous normalize_embeddings=True behavior.
+            magnitude = math.sqrt(
+                sum(value * value for value in embedding)
+            )
+
+            if magnitude == 0:
+                raise RuntimeError(
+                    "Cloudflare returned a zero-length embedding."
+                )
+
+            normalized = [
+                value / magnitude for value in embedding
+            ]
+
+            all_embeddings.append(normalized)
+
+    return all_embeddings
 
 
 # Existing knowledge-base location
@@ -14,6 +112,7 @@ KB_PATH = (
     / "data"
     / "knowledge_base.md"
 )
+
 
 # Persistent ChromaDB storage location
 DEFAULT_CHROMA_PATH = (
@@ -26,11 +125,9 @@ CHROMA_PATH = Path(
 
 
 class EmbeddingRAG:
+
     def __init__(self, top_k: int = 2):
         self.top_k = top_k
-
-        # Keep the existing embedding model
-        self.model = SentenceTransformer("all-MiniLM-L6-v2")
 
         # Load SOP articles
         self.documents = self._load_documents()
@@ -48,11 +145,9 @@ class EmbeddingRAG:
             path=str(CHROMA_PATH)
         )
 
-        # Use cosine distance for vector similarity search.
-        # We supply our own embeddings, so ChromaDB does not
-        # need to generate embeddings itself.
+        # Use a separate collection for Cloudflare embeddings.
         self.collection = self.client.get_or_create_collection(
-            name="it_support_sops",
+            name="it_support_sops_cloudflare",
             metadata={"hnsw:space": "cosine"},
             embedding_function=None,
         )
@@ -125,14 +220,10 @@ class EmbeddingRAG:
             for document in self.documents
         ]
 
-        # Generate embeddings with the existing model.
-        embeddings = self.model.encode(
-            self.documents,
-            normalize_embeddings=True,
-            convert_to_numpy=True,
-        ).tolist()
+        # Generate SOP embeddings using Cloudflare.
+        embeddings = generate_embeddings(self.documents)
 
-        # Remove records for SOPs that no longer exist in the file.
+        # Remove records for SOPs that no longer exist.
         existing_ids = self.collection.get(include=[])["ids"]
         current_ids = set(ids)
 
@@ -242,7 +333,7 @@ class EmbeddingRAG:
         """
         Retrieve relevant SOPs from ChromaDB.
 
-        Returns the same structure as the previous FAISS version:
+        Returns:
         [{"content": "...", "score": 0.95}, ...]
         """
 
@@ -261,15 +352,11 @@ class EmbeddingRAG:
         if document_count == 0:
             return []
 
-        # Embed the ticket using the same model used for SOPs.
-        query_embedding = self.model.encode(
-            [query],
-            normalize_embeddings=True,
-            convert_to_numpy=True,
-        )[0].tolist()
+        # Generate ticket embedding using Cloudflare.
+        query_embedding = generate_embeddings([query])[0]
 
         # Retrieve all SOPs so category boosting can change
-        # the ranking before we select the final top results.
+        # the ranking before selecting the final top results.
         matches = self.collection.query(
             query_embeddings=[query_embedding],
             n_results=document_count,
@@ -287,7 +374,6 @@ class EmbeddingRAG:
             documents, metadatas, distances
         ):
             # Cosine distance = 1 - cosine similarity.
-            # Convert it back to a similarity-style score.
             score = 1.0 - float(distance)
 
             category = metadata.get("category", "unknown")
