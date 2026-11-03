@@ -62,7 +62,7 @@ export const StandaloneTicketView: React.FC<StandaloneTicketViewProps> = ({
     setApprovalSteps(scenario.approvalHierarchy);
 
     try {
-      const res = await fetch(${API_BASE_URL}/api/environment/reset, {
+      const res = await fetch(`${API_BASE_URL}/api/environment/reset`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(scenario.initialEnv),
@@ -87,7 +87,7 @@ export const StandaloneTicketView: React.FC<StandaloneTicketViewProps> = ({
     setLoading(true);
 
     try {
-      const res = await fetch(${API_BASE_URL}/api/tickets, {
+        const res = await fetch(`${API_BASE_URL}/api/tickets`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ticket: ticketText }),
