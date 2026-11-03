@@ -1,0 +1,153 @@
+================================================================================
+          AI IT SUPPORT RESOLUTION AGENT: ARCHITECTURE & WORKFLOW
+================================================================================
+
+This document explains in simple, plain English how this AI IT Support Resolution 
+Agent works, how tickets flow through the system, how the AI models (Gemini / LLM) 
+are called, and how tools and knowledge base articles are used.
+
+--------------------------------------------------------------------------------
+1. HIGH-LEVEL OVERVIEW (THE BIG PICTURE)
+--------------------------------------------------------------------------------
+
+Imagine an automated Tier-1 IT Support Engineer. When an employee raises a ticket 
+(e.g., "Cannot connect to VPN" or "Password expired"):
+
+1. The AI receives the ticket.
+2. It looks up company SOPs (Standard Operating Procedures) from "knowledge_base.md" 
+   (this is RAG - Retrieval-Augmented Generation).
+3. It asks the AI Model (LLM): "What tool should I run first based on the SOP?"
+4. The AI Model responds with a tool call (e.g. `check_vpn_status`).
+5. The system executes the tool against the system environment.
+6. The system sends the tool's result back to the AI Model.
+7. The AI Model decides the next action (e.g. `restart_vpn`, then `check_certificate`).
+8. The AI Model verifies the fix (`check_vpn_status` -> 'connected').
+9. Once verified, the AI marks the ticket as "RESOLVED" (or "ESCALATE" if human help 
+   is needed).
+
+--------------------------------------------------------------------------------
+2. THE 3 CORE COMPONENTS
+--------------------------------------------------------------------------------
+
+A. FRONTEND (React + Tailwind UI)
+   - Displays incoming enterprise tickets, real-time agent execution traces, 
+     a live environment state inspector, and the Knowledge Base viewer.
+   - When you click "Resolve with AI Agent" or click a pre-built ticket, it sends 
+     an HTTP POST request to `/tickets`.
+
+B. BACKEND ORCHESTRATOR (LangGraph State Machine / Express / FastAPI)
+   - Controls the state and enforces security boundaries.
+   - Contains the LangGraph workflow:
+     [Ticket In] -> [RAG Node] -> [LLM Reasoning Node] <---> [Tool Node] -> [End Result]
+
+C. KNOWLEDGE BASE & TOOLS
+   - Single Source of Truth: `src/data/knowledge_base.md`
+   - Approved Automated Tools:
+     * Password: `check_password_status`, `reset_password`
+     * VPN: `check_vpn_status`, `restart_vpn`, `check_certificate`
+     * Verification: `login`
+
+--------------------------------------------------------------------------------
+3. DETAILED STEP-BY-STEP FLOW (WHEN A TICKET IS SUBMITTED)
+--------------------------------------------------------------------------------
+
+STEP 1: TICKET INGESTION
+   - The user selects or types a ticket, e.g.:
+     "VPN client hangs on authenticating with error code 809."
+   - The request hits the backend endpoint `POST /tickets`.
+
+STEP 2: RAG KNOWLEDGE RETRIEVAL (RAG Node)
+   - The system reads `src/data/knowledge_base.md`.
+   - It searches for matching SOP rules based on keywords (e.g., "vpn", "tunnel", "809").
+   - It retrieves the exact SOP steps (e.g., "1. Check VPN status. 2. Restart tunnel. 3. Check cert.").
+
+STEP 3: SAFETY & AUTHORITY GUARD
+   - The orchestrator checks if the issue category is within Tier-1 automation authority:
+     * Allowed for automated fix: Password resets & VPN tunnel restarts.
+     * Restricted (Requires Human L2 / L3): Firewall changes, ERP gateway blocks, 
+       lost MFA tokens, and company-wide outages.
+   - If restricted, it immediately stops and generates an ESCALATION event to human IT.
+
+STEP 4: CALLING THE AI MODEL (LLM Reasoning Node)
+   - The orchestrator constructs a prompt containing:
+     * System Prompt: "You are an AI IT Support Agent. Follow SOPs. Never claim success without verification."
+     * User Ticket & Retrieved SOP Knowledge.
+     * History of actions already taken and tool results.
+     * Available Tool Schemas (Function Calling format).
+   - How the AI Model is called:
+     * Primary: Google Gemini API (`@google/genai`) or Groq Llama 3.3 70B.
+     * The model performs "Tool Selection" / "Function Calling".
+     * Example LLM output: `Call check_vpn_status()`
+
+STEP 5: TOOL EXECUTION (Tool Node)
+   - The orchestrator executes the tool:
+     * Calls `check_vpn_status()` -> returns `{"status": "disconnected"}`.
+   - The result is logged into the audit timeline and state.
+
+STEP 6: LLM DECISION LOOP (Repeat Step 4 & 5)
+   - The tool output is fed back to the LLM.
+   - LLM reads SOP: "Since VPN is disconnected, next step is restart_vpn".
+   - LLM calls `restart_vpn()`.
+   - Tool executes -> returns `{"status": "success", "message": "VPN service restarted."}`.
+
+STEP 7: MANDATORY STATE VERIFICATION
+   - Rule: The AI is STRICTLY FORBIDDEN from guessing or claiming resolved without testing.
+   - LLM calls `check_vpn_status()` and `check_certificate()`.
+   - Tools return: VPN is now `connected` and certificate is `valid`.
+
+STEP 8: FINAL RESOLUTION OR ESCALATION
+   - The LLM outputs the final status:
+     * STATUS: RESOLVED
+     * Summary: "VPN tunnel successfully restarted and verified active."
+   - Or if a check failed (e.g., certificate is expired):
+     * STATUS: ESCALATE
+     * Reason: "Client machine certificate has expired. Escalating to L2 Network Admin."
+
+--------------------------------------------------------------------------------
+4. HOW THE AI MODELS (LLM) ARE CALLED UNDER THE HOOD
+--------------------------------------------------------------------------------
+
+Here is a simplified code view of how the model is invoked:
+
+```typescript
+// 1. Prepare Prompt & Function Tools
+const messages = [
+  { role: "system", content: SYSTEM_PROMPT },
+  { role: "user", content: `Ticket: ${ticket}\nSOP: ${sopRules}` },
+  ...previousToolEvents
+];
+
+// 2. Call Gemini / LLM with Function Declarations
+const response = await ai.models.generateContent({
+  model: "gemini-2.5-flash",
+  contents: messages,
+  tools: [{ functionDeclarations: TOOL_DEFINITIONS }]
+});
+
+// 3. Check if model wants to call a tool or finalize answer
+if (response.functionCalls && response.functionCalls.length > 0) {
+  const toolCall = response.functionCalls[0];
+  // Execute tool: toolCall.name (e.g. restart_vpn)
+} else {
+  // Model provided final text response (RESOLVED or ESCALATE)
+}
+```
+
+--------------------------------------------------------------------------------
+5. SUMMARY OF KEY SAFEGUARDS
+--------------------------------------------------------------------------------
+
+1. No Hallucinated Success:
+   - The AI cannot declare "Resolved" unless a verification tool returns positive state.
+
+2. Loop / Runaway Protection:
+   - Maximum of 6 steps per ticket. If unresolved within 6 steps, it automatically escalates.
+
+3. Role-Based Access Control (RBAC):
+   - Tier-1 AI bot only touches safe user-level actions (Password & VPN).
+   - High-risk infra operations (Firewall, ERP routing, MFA seed resets) are 
+     safely escalated to human engineers with complete telemetry.
+
+4. Single Knowledge Source:
+   - All rules come from plain text Markdown in `src/data/knowledge_base.md`.
+================================================================================

@@ -1,0 +1,27 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# ChromaDB
+chroma_data/
+chroma_db/
+chroma/
+
+README_LOCAL.md
+src/assets/images/ai_architecture_slide_1788370637230.jpg
+src/assets/images/clean_tech_stack_slide_1788431910827.jpg
+src/assets/images/fastapi_langgraph_tech_stack_1788432294771.jpg
+src/assets/images/simple_ai_architecture_1788371077661.jpg
+src/assets/images/tech_stack_presentation_slide_1788431672685.jpg

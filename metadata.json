@@ -1,0 +1,6 @@
+{
+  "name": "AI IT Support Resolution Agent",
+  "description": "POC AI IT Support Resolution Agent with LangGraph agentic loop, Mock RAG, and live interactive environment simulation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
