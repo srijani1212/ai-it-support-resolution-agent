@@ -40,6 +40,8 @@ import {
 } from "../types";
 import { ApprovalHierarchyModal } from "./ApprovalHierarchyModal";
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || "";
+
 interface InteractiveSimulatorProps {
   scenario: DemoScenario;
   environment: EnvironmentState;
@@ -153,7 +155,7 @@ const handleEmployeeLogin = async (e?: React.FormEvent) => {
   setLoginResult(null);
 
   try {
-    const res = await fetch("/api/login", {
+    const res = await fetch($/api/login, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -213,7 +215,7 @@ const handleEmployeeLogin = async (e?: React.FormEvent) => {
     setChangePasswordResult(null);
 
     try {
-      const res = await fetch("/api/change-password", {
+      const res = await fetch($/api/change-password, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -257,7 +259,7 @@ const handleEmployeeLogin = async (e?: React.FormEvent) => {
     setTestingVpn(true);
 
     try {
-      const res = await fetch("/api/test-vpn", { method: "POST" });
+      const res = await fetch($/api/test-vpn, { method: "POST" });
       const data: VpnTestResponse = await res.json();
       setVpnResult(data);
     } catch (err) {
@@ -277,7 +279,7 @@ const handleEmployeeLogin = async (e?: React.FormEvent) => {
     setTestingDisk(true);
 
     try {
-      const res = await fetch("/api/test-disk", { method: "POST" });
+      const res = await fetch($/api/test-disk, { method: "POST" });
       const data: DiskTestResponse = await res.json();
       setDiskResult(data);
     } catch (err) {
@@ -299,7 +301,7 @@ const handleEmployeeLogin = async (e?: React.FormEvent) => {
     setTestingPrinter(true);
 
     try {
-      const res = await fetch("/api/test-printer", { method: "POST" });
+      const res = await fetch($/api/test-printer, { method: "POST" });
       const data: PrinterTestResponse = await res.json();
       setPrinterResult(data);
     } catch (err) {
